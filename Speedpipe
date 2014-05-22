@@ -1,0 +1,112 @@
+/*
+ * Без имени.c
+ * 
+ * Copyright 2014 Lex <lex22@ubuntu>
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ * 
+ * 
+ */
+
+
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/time.h>
+
+int main(int argc, char **argv){
+	if (argc != 3) {
+		fprintf(stderr, "Wrong arguments\n");
+		return 1;
+	}
+	
+	int total_size, block_size;
+	sscanf(argv[1], "%d", &total_size);
+	sscanf(argv[2], "%d", &block_size);
+	
+	if (total_size <= 0 || block_size <= 0 || block_size >= total_size) {
+		fprintf(stderr, "Wrong arguments\n");
+		return 1;
+	}
+	
+	int fd[2];
+	if(pipe(fd)){
+		fprintf(stderr, "Error of pipe");;
+		return 2;
+	}
+	
+	int pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "Error of fork");;
+		return 3;
+	}
+	
+	if (pid == 0) {//child,write
+		close(fd[0]);
+		
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		
+		char data[block_size];
+		while (total_size > 0) {	//all data
+			int s = block_size, pos = 0;
+			if (s > total_size) s = total_size;
+			while (s > 0) {	//current block
+				int status = write(fd[1], data + pos, s);
+				if (status < 0) {
+					fprintf(stderr, "Error\n");
+					return 1;
+				}
+				s -= status;
+				pos += status;
+			}
+			total_size -= block_size;
+		}
+		
+		write(fd[1], &tv, sizeof(tv));
+		close(fd[1]);
+	}
+	else {//parent,read
+		close(fd[1]);
+		
+		int ts = total_size;
+		char data[block_size];
+		while (ts > 0) {	//all data
+			int s = block_size, pos = 0;
+			if (s > ts) s = ts;
+			while (s > 0) {	//current block
+				int status = read(fd[0], data + pos, s);
+				if (status < 0) {
+					fprintf(stderr, "Error\n");
+					return 1;
+				}
+				s -= status;
+				pos += status;
+			}
+			ts -= block_size;
+		}
+		
+		struct timeval tv;
+		gettimeofday(&tv, NULL);
+		double t = tv.tv_sec + (double)tv.tv_usec / 1000000;
+		read(fd[0], &tv, sizeof(tv));
+		t -= tv.tv_sec + (double)tv.tv_usec / 1000000;
+		
+		close(fd[0]);
+		printf("%d %lf\n", block_size, total_size / t);
+	}
+	
+	return 0;
+}
